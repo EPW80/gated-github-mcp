@@ -21,6 +21,7 @@ const calls: [string, unknown][] = [
   ["list_issues", { owner: "evil", repo: "other" }],
   ["get_issue", { ...ok, issue_number: -1 }],
   ["delete_repo", ok],
+  ["get_issue", { ...ok, issue_number: 1, note: "ghp_" + "a1".repeat(18), api_key: "hunter2hunter2" }],
 ];
 for (const [name, args] of calls) {
   const r = await client.callTool({ name, arguments: args as Record<string, unknown> });
