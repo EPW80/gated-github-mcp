@@ -5,7 +5,8 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "gated-github-mcp": "dist/index.js"
+    "gated-github-mcp": "dist/index.js",
+    "gated-github-mcp-verify-log": "dist/cli/verify-log.js"
   },
   "engines": {
     "node": ">=20"
@@ -16,7 +17,7 @@
     "dev": "tsx src/index.ts",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "verify-log": "echo 'verify-log: implemented in Phase 3' && exit 1"
+    "verify-log": "node dist/cli/verify-log.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
