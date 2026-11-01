@@ -47,7 +47,13 @@ const gitRef = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^[A-Za-z0-9._/-]+$/, "invalid git ref");
+  .regex(/^[A-Za-z0-9._/-]+$/, "invalid git ref")
+  // Octokit leaves "." and ".." unencoded in URL paths, where they are resolved as
+  // path segments; git itself forbids these forms (see git check-ref-format).
+  .refine(
+    (r) => !r.includes("..") && !r.split("/").some((seg) => seg === "" || seg.startsWith(".") || seg.endsWith(".lock")),
+    "invalid git ref",
+  );
 
 export const tools: readonly AnyToolDefinition[] = [
   defineTool({

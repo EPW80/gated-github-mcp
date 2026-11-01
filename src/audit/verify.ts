@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { GENESIS_HASH, hashEntry, type AuditEntry } from "./chain.js";
+import { canonicalize, GENESIS_HASH, hashEntry, type AuditEntry } from "./chain.js";
 
 export type VerifyResult =
   | { ok: true; entries: number; head: string }
@@ -28,6 +28,10 @@ export function verifyLog(path: string): VerifyResult {
     if (!e || typeof e !== "object" || typeof e.seq !== "number" || typeof e.hash !== "string" || typeof e.prev_hash !== "string") {
       return fail("line is not a well-formed audit entry");
     }
+    // The logger only writes canonical JSON. Anything else (duplicate keys, reordered
+    // keys, extra whitespace) is hand-edited, and could display a different value
+    // than the one that was hashed.
+    if (line !== canonicalize(e)) return fail("line is not in canonical form (hand-edited or duplicate keys)");
     if (hashEntry(e) !== e.hash) return fail("entry contents do not match its hash (entry was edited)");
     if (e.seq !== i) {
       return fail(

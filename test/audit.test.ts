@@ -22,7 +22,7 @@ describe("hash chain", () => {
     const r = verifyLog(h.logPath);
     expect(r).toMatchObject({ ok: true, entries: 5 }); // start entry + 4 calls
     expect(new Set(h.entries().map((e) => e.policy_hash))).toEqual(new Set([h.policy.hash]));
-    expect(h.entries()[0]).toMatchObject({ tool: "_server_start", seq: 0 });
+    expect(h.entries()[0]).toMatchObject({ event: "start", seq: 0 });
   });
 
   it("fails verification when an entry is hand-edited", async () => {
@@ -43,7 +43,8 @@ describe("hash chain", () => {
     entries[2]!.decision = { outcome: "allow" };
     const { hashEntry } = await import("../src/audit/chain.js");
     entries[2]!.hash = hashEntry(entries[2]!);
-    writeFileSync(h.logPath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const { canonicalize } = await import("../src/audit/chain.js");
+    writeFileSync(h.logPath, entries.map((e) => canonicalize(e)).join("\n") + "\n");
     expect(verifyLog(h.logPath)).toMatchObject({ ok: false, line: 4 });
   });
 

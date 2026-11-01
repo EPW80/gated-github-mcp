@@ -35,7 +35,7 @@ export type Redactor = {
  * be cut in half and left partially visible.
  */
 export function createRedactor(knownSecrets: readonly (string | undefined)[] = []): Redactor {
-  const exact = knownSecrets.filter((s): s is string => !!s && s.length >= 8);
+  const exact = knownSecrets.map((s) => s?.trim()).filter((s): s is string => !!s && s.length >= 8);
 
   const scrub = (s: string): string => {
     let out = s;
