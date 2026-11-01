@@ -15,9 +15,10 @@ try {
   process.exit(1);
 }
 
+const redactor = createRedactor([process.env.GITHUB_TOKEN]);
 let audit;
 try {
-  audit = AuditLog.open(process.env.AUDIT_LOG_PATH, policy.hash, createRedactor([process.env.GITHUB_TOKEN]));
+  audit = AuditLog.open(process.env.AUDIT_LOG_PATH, policy.hash, redactor, (m) => console.error(`warning: ${m}`));
 } catch (e) {
   console.error(`fatal: ${(e as Error).message}`);
   process.exit(1);
@@ -26,7 +27,7 @@ try {
 let client: GitHubClient | undefined;
 const getGitHub = (): GitHubClient => (client ??= createGitHubClient());
 
-const server = createServer({ policy, audit, getGitHub });
+const server = createServer({ policy, audit, redactor, getGitHub });
 await server.connect(new StdioServerTransport());
 // stdout carries the MCP protocol; diagnostics go to stderr only.
 console.error(`gated-github-mcp running on stdio (policy ${policy.hash.slice(0, 12)})`);

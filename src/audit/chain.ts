@@ -6,12 +6,14 @@ export const GENESIS_HASH = "0".repeat(64);
 export interface AuditEntry {
   v: 1;
   seq: number;
+  /** start: server boot; intent: written before an allowed write call; call: final outcome. */
+  event: "start" | "intent" | "call";
   ts: string;
   tool: string;
   args: unknown;
   policy_hash: string;
   decision: { outcome: "allow" | "deny" | "dry_run"; reason?: string };
-  result: { status: "ok" | "error" | "denied" | "dry_run"; detail: string };
+  result: { status: "ok" | "error" | "denied" | "dry_run" | "pending"; detail: string };
   duration_ms: number;
   prev_hash: string;
   hash: string;

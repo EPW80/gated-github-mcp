@@ -2,12 +2,15 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { GitHubClient } from "../github/client.js";
 import type { AuditEntry } from "../audit/chain.js";
 import type { AuditLog } from "../audit/log.js";
+import type { Redactor } from "../audit/redact.js";
 import { decide, type Decision } from "../policy/decide.js";
 import type { Policy } from "../policy/load.js";
 
 export interface ExecuteDeps {
   policy: Policy;
   audit: AuditLog;
+  /** Scrubs secrets from error text before it is returned to the agent. */
+  redactor: Redactor;
   /** Lazily provides the GitHub client. Only `execute` ever calls this. */
   getGitHub: () => GitHubClient;
 }
@@ -15,7 +18,8 @@ export interface ExecuteDeps {
 /**
  * The single path from an MCP tool call to GitHub. Every call, including unknown
  * tool names and malformed arguments, is decided by `decide` first; only an
- * "allow" decision reaches a handler. Every outcome is then written to the audit log.
+ * "allow" decision reaches a handler. Every outcome is written to the audit log,
+ * and allowed writes are also logged *before* GitHub is called.
  */
 export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown): Promise<CallToolResult> {
   // Fail closed: once the audit log has failed, nothing else runs unrecorded.
@@ -23,15 +27,42 @@ export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown)
 
   const started = performance.now();
   const decision = decide(deps.policy, name, rawArgs);
-  const result = await run(deps, decision);
+  const logged: AuditEntry["decision"] =
+    decision.outcome === "deny" ? { outcome: "deny", reason: decision.reason } : { outcome: decision.outcome };
+
+  // Write-ahead: an allowed write is on the record before it can change anything.
+  if (decision.outcome === "allow" && decision.def.kind === "write") {
+    try {
+      deps.audit.record({
+        event: "intent",
+        tool: name,
+        args: rawArgs,
+        decision: logged,
+        result: { status: "pending", detail: "calling GitHub" },
+        durationMs: 0,
+      });
+    } catch {
+      console.error("fatal: audit log write failed; refusing further calls");
+      return errorResult("Audit log write failed: call refused, nothing was sent to GitHub");
+    }
+  }
+
+  let result: CallToolResult;
+  try {
+    result = await run(deps, decision);
+  } catch {
+    // Any unexpected failure is still an outcome, and still gets logged.
+    result = errorResult("Internal error: the call did not complete");
+  }
+  if (result.isError) result = errorResult(deps.redactor.text(textOf(result)));
 
   const status: AuditEntry["result"]["status"] =
-    decision.outcome === "deny" ? "denied" : decision.outcome === "dry_run" ? "dry_run" : result.isError ? "error" : "ok";
+    decision.outcome === "deny" ? "denied" : result.isError ? "error" : decision.outcome === "dry_run" ? "dry_run" : "ok";
   try {
     deps.audit.record({
       tool: name,
       args: rawArgs,
-      decision: decision.outcome === "deny" ? { outcome: "deny", reason: decision.reason } : { outcome: decision.outcome },
+      decision: logged,
       result: { status, detail: textOf(result) },
       durationMs: performance.now() - started,
     });

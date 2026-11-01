@@ -64,10 +64,11 @@ export function harness(policyYaml = DEFAULT_POLICY) {
   const logPath = join(dir, "audit.jsonl");
   writeFileSync(policyPath, policyYaml);
   const policy = loadPolicy(policyPath);
-  const audit = AuditLog.open(logPath, policy.hash, createRedactor([FAKE_TOKEN]));
+  const redactor = createRedactor([FAKE_TOKEN]);
+  const audit = AuditLog.open(logPath, policy.hash, redactor);
   const github = mockGitHub();
   const getGitHub = vi.fn(() => github.gh);
-  const run = (name: string, args: unknown): Promise<CallToolResult> => execute({ policy, audit, getGitHub }, name, args);
+  const run = (name: string, args: unknown): Promise<CallToolResult> => execute({ policy, audit, redactor, getGitHub }, name, args);
   const entries = (): AuditEntry[] => readLog(logPath);
   const last = (): AuditEntry => entries().at(-1)!;
   return { dir, policy, policyPath, logPath, audit, github, getGitHub, run, entries, last };
