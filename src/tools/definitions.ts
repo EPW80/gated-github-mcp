@@ -3,12 +3,21 @@ import type { GitHubClient } from "../github/client.js";
 
 export type ToolKind = "read" | "write";
 
+/** The GitHub request a write tool would make; returned verbatim by dry_run. */
+export interface RequestPlan {
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  endpoint: string;
+  body: Record<string, unknown>;
+}
+
 export interface ToolDefinition<S extends z.ZodObject = z.ZodObject> {
   name: string;
   description: string;
   kind: ToolKind;
   inputSchema: S;
   handler: (gh: GitHubClient, args: z.infer<S>) => Promise<unknown>;
+  /** Required for write tools: describes the request without sending it. */
+  plan?: (args: z.infer<S>) => RequestPlan;
 }
 
 export type AnyToolDefinition = ToolDefinition<z.ZodObject>;
@@ -23,16 +32,16 @@ function defineTool<S extends z.ZodObject>(def: ToolDefinition<S>): AnyToolDefin
 }
 
 // GitHub naming rules: owners are alphanumeric + hyphen (max 39); repos also allow "." and "_".
-const owner = z
+export const ownerSchema = z
   .string()
   .regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/, "invalid GitHub owner")
   .describe("Repository owner (user or org)");
-const repo = z
+export const repoSchema = z
   .string()
   .regex(/^[A-Za-z0-9._-]{1,100}$/, "invalid GitHub repo name")
   .refine((r) => r !== "." && r !== "..", "invalid GitHub repo name")
   .describe("Repository name");
-const repoRef = { owner, repo };
+const repoRef = { owner: ownerSchema, repo: repoSchema };
 const number = (what: string) => z.number().int().positive().describe(what);
 const gitRef = z
   .string()
@@ -99,6 +108,11 @@ export const tools: readonly AnyToolDefinition[] = [
       const { data } = await gh.rest.issues.createComment({ owner, repo, issue_number, body });
       return { id: data.id, url: data.html_url };
     },
+    plan: ({ owner, repo, issue_number, body }) => ({
+      method: "POST",
+      endpoint: `/repos/${owner}/${repo}/issues/${issue_number}/comments`,
+      body: { body },
+    }),
   }),
 
   defineTool({
@@ -117,6 +131,11 @@ export const tools: readonly AnyToolDefinition[] = [
       const { data } = await gh.rest.pulls.create({ owner, repo, title, head, base, body, draft });
       return { number: data.number, state: data.state, draft: data.draft, url: data.html_url };
     },
+    plan: ({ owner, repo, title, head, base, body, draft }) => ({
+      method: "POST",
+      endpoint: `/repos/${owner}/${repo}/pulls`,
+      body: { title, head, base, body, draft },
+    }),
   }),
 
   defineTool({
@@ -161,6 +180,11 @@ export const tools: readonly AnyToolDefinition[] = [
       const { data } = await gh.rest.pulls.merge({ owner, repo, pull_number, merge_method, sha });
       return { merged: data.merged, sha: data.sha, message: data.message };
     },
+    plan: ({ owner, repo, pull_number, merge_method, sha }) => ({
+      method: "PUT",
+      endpoint: `/repos/${owner}/${repo}/pulls/${pull_number}/merge`,
+      body: { merge_method, sha },
+    }),
   }),
 ];
 
