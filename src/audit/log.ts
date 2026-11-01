@@ -86,6 +86,11 @@ export class AuditLog {
     return log;
   }
 
+  /** seq of the most recently written entry (-1 if none). */
+  get lastSeq(): number {
+    return this.seq - 1;
+  }
+
   record(input: RecordInput): void {
     this.write(input.event ?? "call", input);
   }

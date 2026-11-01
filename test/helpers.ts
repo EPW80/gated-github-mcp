@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, vi } from "vitest";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { AuditLog } from "../src/audit/log.js";
 import { createRedactor } from "../src/audit/redact.js";
@@ -67,11 +68,15 @@ export function harness(policyYaml = DEFAULT_POLICY) {
   const redactor = createRedactor([FAKE_TOKEN]);
   const audit = AuditLog.open(logPath, policy.hash, redactor);
   const github = mockGitHub();
+  // Every harness traces into memory, so all tests also prove tracing never breaks a call.
+  const spanExporter = new InMemorySpanExporter();
+  const tracer = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] }).getTracer("test");
   const getGitHub = vi.fn(() => github.gh);
-  const run = (name: string, args: unknown): Promise<CallToolResult> => execute({ policy, audit, redactor, getGitHub }, name, args);
+  const run = (name: string, args: unknown): Promise<CallToolResult> => execute({ policy, audit, redactor, getGitHub, tracer }, name, args);
   const entries = (): AuditEntry[] => readLog(logPath);
   const last = (): AuditEntry => entries().at(-1)!;
-  return { dir, policy, policyPath, logPath, audit, github, getGitHub, run, entries, last };
+  const spans = () => spanExporter.getFinishedSpans();
+  return { spans, dir, policy, policyPath, logPath, audit, github, getGitHub, run, entries, last };
 }
 
 export const readLog = (path: string): AuditEntry[] =>

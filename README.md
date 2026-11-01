@@ -123,6 +123,20 @@ It detects edited, deleted, reordered, duplicated and reformatted entries. The s
 
 Each entry records the timestamp, event (`start`, `intent` or `call`), tool, arguments (secrets redacted), policy hash, decision and reason, result or error, duration, and the previous entry's hash. Allowed **write** calls get an `intent` entry *before* GitHub is called; if that can't be written, the call is refused.
 
+## Tracing (OpenTelemetry)
+
+Set `OTEL_TRACES_EXPORTER=console` to emit one span per tool call, as one JSON line on **stderr**. It is off by default; other exporter values are not supported and log a warning.
+
+```json
+{"otel":"span","name":"tools/call merge_pull_request","status":{"code":0},"attributes":{"mcp.method.name":"tools/call","gen_ai.tool.name":"merge_pull_request","gated.tool.kind":"write","gated.decision":"deny","gated.deny_reason":"tool_denied","gated.result.status":"denied","gated.audit.seq":3,"gated.policy.hash":"aa4f…"}, ...}
+```
+
+- `gated.audit.seq` is the `seq` of the call's audit log entry, so a span can be matched to its log line.
+- Spans carry the decision and outcome, never the arguments. Tool names the agent made up are redacted and kept out of the span name.
+- Only failures (GitHub errors, refused or unlogged calls) set the span status to `ERROR`. A denial or dry run is the policy working, so its status stays unset.
+- The SDK's stock `ConsoleSpanExporter` writes to stdout, which would corrupt the MCP stream, so this server uses a small stderr exporter instead.
+- A tracing failure can never block or change a call.
+
 ## Threat model
 
 The agent is assumed to be capable and possibly misdirected (prompt injection from an issue body, for example). The question is what it can do with GitHub, and whether you can tell afterwards.
@@ -185,6 +199,7 @@ src/
   tools/definitions.ts  the six tools: Zod schema, handler, dry-run plan
   policy/             load.ts (fail-closed loader), decide.ts (pure rules)
   audit/              chain.ts, log.ts, redact.ts, verify.ts
+  telemetry.ts        opt-in span per call, stderr exporter
   cli/verify-log.ts
 ```
 
@@ -197,5 +212,5 @@ Deliberately out of scope for now:
 - **Signed or anchored log.** An HMAC key held outside the agent's reach, or periodically publishing the `head` hash, would make whole-log rewrites and tail truncation detectable.
 - **Finer policy.** Per-repo tool modes, `owner/*` wildcards, argument constraints (e.g. PRs only into `main`, comment length limits) and rate limits.
 - **Policy hot reload.** A restart is required today, which keeps the rules fixed for a session.
-- **OpenTelemetry.** One span per tool call (planned as a stretch goal).
+- **OTLP export.** Tracing currently goes to stderr only; sending spans to a collector would need the OTLP exporter.
 - **Other trackers, remote transport, multiple users, UI.** No Jira or Linear, no HTTP transport or OAuth, single user, no UI.
