@@ -1,0 +1,12 @@
+version: 1
+
+repos:
+  - your-user/your-sandbox-repo
+
+tools:
+  list_issues: allow
+  get_issue: allow
+  get_ci_status: allow
+  comment_on_issue: allow
+  create_pull_request: dry_run
+  merge_pull_request: deny   # deliberately blocked

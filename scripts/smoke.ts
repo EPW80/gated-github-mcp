@@ -13,10 +13,14 @@ const { tools } = await client.listTools();
 console.log("tools:", tools.map((t) => t.name).join(", "));
 console.log("list_issues schema:", JSON.stringify(tools[0]?.inputSchema));
 
+const ok = { owner: "octocat", repo: "sandbox" };
 const calls: [string, unknown][] = [
-  ["list_issues", { owner: process.env.SMOKE_OWNER ?? "octocat", repo: process.env.SMOKE_REPO ?? "Hello-World" }],
-  ["get_issue", { owner: "octocat", repo: "x", issue_number: -1 }],
-  ["delete_repo", { owner: "octocat", repo: "x" }],
+  ["list_issues", ok],
+  ["create_pull_request", { ...ok, title: "t", head: "feat", base: "main" }],
+  ["merge_pull_request", { ...ok, pull_number: 1 }],
+  ["list_issues", { owner: "evil", repo: "other" }],
+  ["get_issue", { ...ok, issue_number: -1 }],
+  ["delete_repo", ok],
 ];
 for (const [name, args] of calls) {
   const r = await client.callTool({ name, arguments: args as Record<string, unknown> });
