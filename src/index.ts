@@ -5,6 +5,7 @@ import { createRedactor } from "./audit/redact.js";
 import { createGitHubClient, type GitHubClient } from "./github/client.js";
 import { loadPolicy } from "./policy/load.js";
 import { createServer } from "./server.js";
+import { initTelemetry } from "./telemetry.js";
 
 // Fail closed: any policy problem aborts startup.
 let policy;
@@ -27,7 +28,7 @@ try {
 let client: GitHubClient | undefined;
 const getGitHub = (): GitHubClient => (client ??= createGitHubClient());
 
-const server = createServer({ policy, audit, redactor, getGitHub });
+const server = createServer({ policy, audit, redactor, getGitHub, tracer: initTelemetry(process.env, (m) => console.error(`warning: ${m}`)) });
 await server.connect(new StdioServerTransport());
 // stdout carries the MCP protocol; diagnostics go to stderr only.
 console.error(`gated-github-mcp running on stdio (policy ${policy.hash.slice(0, 12)})`);

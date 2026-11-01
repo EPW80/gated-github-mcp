@@ -1,10 +1,12 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { SpanStatusCode, trace, type Span, type Tracer } from "@opentelemetry/api";
 import type { GitHubClient } from "../github/client.js";
 import type { AuditEntry } from "../audit/chain.js";
 import type { AuditLog } from "../audit/log.js";
 import type { Redactor } from "../audit/redact.js";
 import { decide, type Decision } from "../policy/decide.js";
 import type { Policy } from "../policy/load.js";
+import { toolsByName } from "./definitions.js";
 
 export interface ExecuteDeps {
   policy: Policy;
@@ -13,6 +15,15 @@ export interface ExecuteDeps {
   redactor: Redactor;
   /** Lazily provides the GitHub client. Only `execute` ever calls this. */
   getGitHub: () => GitHubClient;
+  /** One span per call. Defaults to the API's no-op tracer. */
+  tracer?: Tracer;
+}
+
+/** What a call turned into, filled in as it progresses; used for its span. */
+interface Outcome {
+  decision?: AuditEntry["decision"];
+  status?: AuditEntry["result"]["status"] | "refused" | "unlogged";
+  seq?: number;
 }
 
 /**
@@ -22,13 +33,29 @@ export interface ExecuteDeps {
  * and allowed writes are also logged *before* GitHub is called.
  */
 export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown): Promise<CallToolResult> {
+  const span = safely(() => startSpan(deps, name));
+  const outcome: Outcome = {};
+  let result: CallToolResult | undefined;
+  try {
+    result = await executeCall(deps, name, rawArgs, outcome);
+    return result;
+  } finally {
+    if (span) safely(() => endSpan(span, deps, outcome, result));
+  }
+}
+
+async function executeCall(deps: ExecuteDeps, name: string, rawArgs: unknown, outcome: Outcome): Promise<CallToolResult> {
   // Fail closed: once the audit log has failed, nothing else runs unrecorded.
-  if (deps.audit.failed) return errorResult("Audit log unavailable: all calls are refused");
+  if (deps.audit.failed) {
+    outcome.status = "refused";
+    return errorResult("Audit log unavailable: all calls are refused");
+  }
 
   const started = performance.now();
   const decision = decide(deps.policy, name, rawArgs);
   const logged: AuditEntry["decision"] =
     decision.outcome === "deny" ? { outcome: "deny", reason: decision.reason } : { outcome: decision.outcome };
+  outcome.decision = logged;
 
   // Write-ahead: an allowed write is on the record before it can change anything.
   if (decision.outcome === "allow" && decision.def.kind === "write") {
@@ -43,6 +70,7 @@ export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown)
       });
     } catch {
       console.error("fatal: audit log write failed; refusing further calls");
+      outcome.status = "refused";
       return errorResult("Audit log write failed: call refused, nothing was sent to GitHub");
     }
   }
@@ -58,6 +86,7 @@ export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown)
 
   const status: AuditEntry["result"]["status"] =
     decision.outcome === "deny" ? "denied" : result.isError ? "error" : decision.outcome === "dry_run" ? "dry_run" : "ok";
+  outcome.status = status;
   try {
     deps.audit.record({
       tool: name,
@@ -66,11 +95,51 @@ export async function execute(deps: ExecuteDeps, name: string, rawArgs: unknown)
       result: { status, detail: textOf(result) },
       durationMs: performance.now() - started,
     });
+    outcome.seq = deps.audit.lastSeq;
   } catch {
     console.error("fatal: audit log write failed; refusing further calls");
+    outcome.status = "unlogged";
     return errorResult("Audit log write failed: the outcome of this call was not recorded");
   }
   return result;
+}
+
+/**
+ * Span names use only server-known tool names; an agent-supplied name goes into
+ * a redacted attribute instead. Arguments are never recorded on spans.
+ */
+function startSpan(deps: ExecuteDeps, name: string): Span {
+  const def = toolsByName.get(name);
+  const tracer = deps.tracer ?? trace.getTracer("gated-github-mcp");
+  return tracer.startSpan(def ? `tools/call ${def.name}` : "tools/call", {
+    attributes: {
+      "mcp.method.name": "tools/call",
+      "gen_ai.tool.name": def ? def.name : deps.redactor.text(name).slice(0, 100),
+      ...(def ? { "gated.tool.kind": def.kind } : {}),
+      "gated.policy.hash": deps.policy.hash,
+    },
+  });
+}
+
+function endSpan(span: Span, deps: ExecuteDeps, outcome: Outcome, result: CallToolResult | undefined): void {
+  if (outcome.decision) span.setAttribute("gated.decision", outcome.decision.outcome);
+  if (outcome.decision?.reason) span.setAttribute("gated.deny_reason", outcome.decision.reason);
+  span.setAttribute("gated.result.status", outcome.status ?? "unlogged");
+  if (outcome.seq !== undefined) span.setAttribute("gated.audit.seq", outcome.seq);
+  const failed = !result || outcome.status === "error" || outcome.status === "refused" || outcome.status === "unlogged";
+  if (failed) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: deps.redactor.text(result ? textOf(result) : "no result").slice(0, 200) });
+  }
+  span.end();
+}
+
+/** Telemetry must never block or alter a call. */
+function safely<T>(fn: () => T): T | undefined {
+  try {
+    return fn();
+  } catch {
+    return undefined;
+  }
 }
 
 async function run(deps: ExecuteDeps, decision: Decision): Promise<CallToolResult> {
