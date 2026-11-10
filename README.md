@@ -24,6 +24,25 @@ The tool set is intentionally small:
 
 `merge_pull_request` exists mainly to show being blocked.
 
+## Status
+
+*Last updated 2026-11-10.* Feature-complete for its planned scope; live end-to-end testing against GitHub is still to do.
+
+**Done and verified**
+- Six tools behind a single policy wrapper, with deny by default and `dry_run` for write tools.
+- Hash-chained JSONL audit log with secret redaction, write-ahead entries for allowed writes, and fail-closed behavior on any log problem.
+- `verify-log` command, checked against a real log (passes) and edited copies (fails at the edited line).
+- 86 Vitest tests passing with Octokit mocked. They include a regression test for each security-review finding, plus structural tests that keep all GitHub calls inside `execute()`.
+- Adversarial security review completed; 9 of 10 findings fixed in code. The tenth, an agent reaching around the server, is covered in the [threat model](#threat-model).
+- Opt-in OpenTelemetry span per call.
+- Lint clean, and `npm audit` reports no vulnerabilities in runtime dependencies.
+
+**Not yet verified**
+- **Against the real GitHub API.** Testing so far used mocks plus a fake token, so no request has reached a real repo. Next step: list issues, comment and dry-run a PR on a sandbox repo, then attempt a merge, from Claude Code.
+- **The Claude Code setup in this README:** the `claude mcp add` command and the example permission deny rules have not been run.
+- **That a token without *Contents: write* cannot merge.** This is the expected behavior of fine-grained token permissions, but it hasn't been checked against GitHub.
+- **The screenshot** comes from `scripts/demo.ts`, not a Claude Code session.
+
 ## Setup
 
 Requires Node 20+.
