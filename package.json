@@ -17,7 +17,8 @@
     "dev": "tsx src/index.ts",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run",
-    "verify-log": "node dist/cli/verify-log.js"
+    "verify-log": "node dist/cli/verify-log.js",
+    "e2e:live": "tsx scripts/e2e-live.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
