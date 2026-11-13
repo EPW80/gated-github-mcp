@@ -208,6 +208,14 @@ npm run lint
 npx tsx scripts/demo.ts
 ```
 
+Live API check (issue #2). Needs a fine-grained `GITHUB_TOKEN` scoped to the sandbox repo (no *Contents: write*), then:
+
+```bash
+npm run build && npm run e2e:live
+```
+
+Optional: `E2E_OWNER`, `E2E_REPO`, `E2E_ISSUE`, `E2E_PR`. The script drives the built server over stdio the same way a client would: list issues, comment, dry-run a PR, deny merge, reject an off-allowlist repo, verify the audit log (and a tampered copy), and confirm the token still cannot merge when policy temporarily allows it.
+
 The test suite (Vitest, Octokit mocked) covers the policy decisions, fail-closed loading, dry-run making no API calls, error and secret handling, log tampering, and a regression test for each finding from the security review. Two structural tests fail if anything other than `src/tools/execute.ts` calls a tool handler, or anything other than the GitHub client and tool definitions imports Octokit.
 
 ```
